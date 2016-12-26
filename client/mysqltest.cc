@@ -5144,6 +5144,7 @@ uint get_errcode_from_name(const char *error_name, const char *error_end)
                                      handler_error_names)))
     return tmp;
   die("Unknown SQL error name '%s'", error_name);
+  return 0;                                     // Keep compiler happy
 }
 
 const char *unknown_error= "<Unknown>";
