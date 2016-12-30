@@ -2327,6 +2327,14 @@ int multi_update::do_updates()
       goto err;
     }
     table->file->extra(HA_EXTRA_NO_CACHE);
+    /*
+      We have to clear the base record, if we have virtual indexed blob fields,
+      as some storage engines will access the blob fields to calculate the keys
+      to see if they have changed. Without clearing the blob pointers will contain
+      random values which can cause a crash.
+    */
+    if (table->vfield)
+      empty_record(table);
 
     check_opt_it.rewind();
     while(TABLE *tbl= check_opt_it++)

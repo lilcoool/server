@@ -1916,6 +1916,7 @@ innobase_row_to_mysql(
 	}
 	if (table->vfield) {
 		my_bitmap_map*	old_vcol_set = tmp_use_all_columns(table, table->vcol_set);
+		table->update_virtual_fields(VCOL_UPDATE_FOR_READ);
 		table->update_virtual_fields(VCOL_UPDATE_FOR_READ_WRITE);
 		tmp_restore_column_map(table->vcol_set, old_vcol_set);
 	}

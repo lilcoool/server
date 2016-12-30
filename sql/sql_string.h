@@ -197,6 +197,7 @@ public:
     if (!alloced)
       thread_specific= 1;
   }
+  inline void set_alloced() { alloced= 1;}
   inline void set_charset(CHARSET_INFO *charset_arg)
   { str_charset= charset_arg; }
   inline CHARSET_INFO *charset() const { return str_charset; }

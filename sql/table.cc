@@ -6563,6 +6563,7 @@ bool TABLE::mark_virtual_columns_for_write(bool insert_fl)
 {
   Field **vfield_ptr, *tmp_vfield;
   bool bitmap_updated= false;
+  DBUG_ENTER("mark_virtual_columns_for_write");
 
   for (vfield_ptr= vfield; *vfield_ptr; vfield_ptr++)
   {
@@ -6601,7 +6602,7 @@ bool TABLE::mark_virtual_columns_for_write(bool insert_fl)
   }
   if (bitmap_updated)
     file->column_bitmaps_signal();
-  return bitmap_updated;
+  DBUG_RETURN(bitmap_updated);
 }
 
 /*
@@ -7315,6 +7316,7 @@ bool is_simple_order(ORDER *order)
 int TABLE::update_virtual_fields(enum_vcol_update_mode update_mode)
 {
   DBUG_ENTER("TABLE::update_virtual_fields");
+  DBUG_PRINT("enter", ("update_mode: %d", update_mode));
   Field **vfield_ptr, *vf;
   DBUG_ASSERT(vfield);
 
@@ -7327,25 +7329,50 @@ int TABLE::update_virtual_fields(enum_vcol_update_mode update_mode)
     DBUG_ASSERT(vcol_info);
     DBUG_ASSERT(vcol_info->expr);
 
-    bool update;
+    bool update, store_read_value= 0;
     switch (update_mode) {
     case VCOL_UPDATE_FOR_READ_WRITE:
-      if (triggers)
-      {
-        update= true;
-        break;
-      }
+      /*
+        This is called after a read when we are going to do an update.
+        In this case this function has just been called with
+        VCOL_UPDATE_FOR_READ.
+        update field if we are using triggers and we haven't done it during
+        the preceding VOL_UPDATE_FOR_READ
+      */
+      update= triggers && !(!vcol_info->stored_in_db &&
+                            !(key_read &&
+                              vf->part_of_key.is_set(file->active_index)) &&
+                            bitmap_is_set(vcol_set, vf->field_index));
+      break;
     case VCOL_UPDATE_FOR_READ:
       update= !vcol_info->stored_in_db
            && !(key_read && vf->part_of_key.is_set(file->active_index))
            && bitmap_is_set(vcol_set, vf->field_index);
+      store_read_value= 1;
       break;
     case VCOL_UPDATE_FOR_WRITE:
       update= triggers || bitmap_is_set(vcol_set, vf->field_index);
       break;
+    case VCOL_UPDATE_FOR_REPLACE:
+      update= !vcol_info->stored_in_db && (vf->flags & PART_KEY_FLAG)
+           && bitmap_is_set(vcol_set, vf->field_index);
+      if (update && (vf->flags & BLOB_FLAG))
+      {
+        /*
+          The row has been read into record[1] and Field_blob::value
+          contains the value for record[0].  Swap value and read_value
+          to ensure that the virtual column data for the read row will
+          be in read_value at the end of this function
+        */
+        ((Field_blob*) vf)->store_read_value();
+        /* Ensure we call store_read_value() after update */
+        store_read_value= 1;
+      }
+      break;
     case VCOL_UPDATE_INDEXED:
       update= !vcol_info->stored_in_db && (vf->flags & PART_KEY_FLAG)
            && bitmap_is_set(vcol_set, vf->field_index);
+      store_read_value= 1;
       break;
     }
 
@@ -7354,6 +7381,16 @@ int TABLE::update_virtual_fields(enum_vcol_update_mode update_mode)
       /* Compute the actual value of the virtual fields */
       vcol_info->expr->save_in_field(vf, 0);
       DBUG_PRINT("info", ("field '%s' - updated", vf->field_name));
+      if (store_read_value && (vf->flags & BLOB_FLAG))
+      {
+        /*
+          Remember the read value to allow other update_virtual_field() calls
+          for the same blob field for the row to be updated.
+          Field_blob->read_value always contains the virtual column data for
+          any read row.
+        */
+        ((Field_blob*) vf)->store_read_value();
+      }
     }
     else
     {
